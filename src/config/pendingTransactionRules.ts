@@ -1,5 +1,5 @@
-import type { UserRole } from '../types/sop';
-import { hasMenuPermission, type RolePermissionMatrix } from './menuRegistry';
+import type { UserRole } from '../types/sop.ts';
+import { hasMenuPermission, type RolePermissionMatrix } from './menuRegistry.ts';
 
 export type PendingModuleId = 'sales' | 'purchasing';
 export type PendingUrgencyLevel = 'info' | 'normal' | 'warning' | 'overdue';

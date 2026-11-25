@@ -1901,7 +1901,8 @@ async function startServer() {
     res.status(404).end();
   });
 
-  const isProd = process.env.NODE_ENV === 'production';
+  const isProd =
+    process.env.NODE_ENV === 'production' || Boolean(process.env.RAILWAY_ENVIRONMENT);
   if (!isProd) {
     let viteMiddlewares: express.RequestHandler | null = null;
     const viteReady = import('vite')

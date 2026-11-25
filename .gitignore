@@ -7,3 +7,4 @@ coverage/
 .env*
 !.env.example
 data/rbac-store.json
+data/chat-history-store.json
