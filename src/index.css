@@ -1,0 +1,250 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* Harmonize neutral Tailwind steps with cool corporate teal-slate neutrals */
+  --color-slate-50: #F2F6F6;
+  --color-slate-100: #EAF1F1;
+  --color-slate-200: #D6E2E3;
+  --color-slate-300: #B8CCCE;
+  --color-slate-400: #7B969C;
+  --color-slate-500: #4F6B73;
+  --color-slate-600: #39535B;
+  --color-slate-700: #1F3B44;
+  --color-slate-800: #162E36;
+  --color-slate-900: #0F2127;
+  --color-slate-950: #091519;
+
+  --color-neutral-50: #F2F6F6;
+  --color-neutral-100: #EAF1F1;
+  --color-neutral-200: #D6E2E3;
+  --color-neutral-300: #B8CCCE;
+  --color-neutral-400: #7B969C;
+  --color-neutral-500: #4F6B73;
+  --color-neutral-600: #39535B;
+  --color-neutral-700: #1F3B44;
+  --color-neutral-800: #162E36;
+  --color-neutral-900: #0F2127;
+  --color-neutral-950: #091519;
+
+  /* Semantic tokens mapped to CSS variables */
+  --color-canvas: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-input-bg: var(--input-bg);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-ink: var(--text);
+  --color-ink-muted: var(--text-muted);
+  --color-ink-subtle: var(--text-subtle);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-on-accent: var(--on-accent);
+  --color-status-success: var(--success);
+  --color-status-warning: var(--warning);
+  --color-status-danger: var(--danger);
+  --color-status-info: var(--info);
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+    /* NARA AI Corporate Deep Teal & Hijau Tosca Brand Tokens */
+    --brand-tosca: #0D7678;
+    --brand-tosca-hover: #0A6264;
+    --brand-tosca-text: #0B666A;
+    --brand-teal-deep: #042F42;
+    --brand-teal-mid: #084C60;
+    --brand-gray: #47626A;
+    --brand-canvas-light: #F2F6F6;
+    --brand-surface-light: #FFFFFF;
+    --brand-border-light: #D6E2E3;
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-8: 32px;
+    --space-10: 40px;
+    --space-12: 48px;
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 10px;
+
+    /* =====================================================================
+     * LIGHT THEME TOKENS (Crisp Corporate Cool Canvas + Hijau Tosca Accent)
+     * ===================================================================== */
+    --bg: #F2F6F6;
+    --surface: #FFFFFF;
+    --surface-2: #EAF1F1;
+    --surface-3: #DEE8E9;
+    --input-bg: #FFFFFF;
+    --border: #D6E2E3;
+    --border-strong: #B8CCCE;
+    --text: #08242C;
+    --text-muted: #47626A;
+    --text-subtle: #647F87;
+    --accent: #0D7678;
+    --accent-hover: #0A6264;
+    --on-accent: #FFFFFF;
+    --accent-text: #0B666A;
+    --accent-soft: rgba(13, 118, 120, 0.1);
+    --focus-ring: rgba(13, 118, 120, 0.35);
+    --success: #157347;
+    --success-soft: #E3F3EA;
+    --warning: #9A5B00;
+    --warning-soft: #F7ECDA;
+    --danger: #B3261E;
+    --danger-soft: #FBE9E8;
+    --on-danger: #FFFFFF;
+    --info: #155E75;
+    --info-soft: #E0F2F5;
+    --modal-shadow: 0 8px 24px rgba(4, 47, 66, 0.1);
+    --overlay-bg: rgba(4, 29, 38, 0.5);
+    background-color: var(--bg);
+    font-size: 14px;
+  }
+
+  .dark {
+    color-scheme: dark;
+    /* Refined Executive Obsidian-Slate Canvas + Mature Corporate Tosca Accent */
+    --color-slate-700: #253040;
+    --color-slate-800: #1A222D;
+    --color-slate-900: #131921;
+    --color-slate-950: #0C1015;
+    --color-neutral-700: #253040;
+    --color-neutral-800: #1A222D;
+    --color-neutral-900: #131921;
+    --color-neutral-950: #0C1015;
+
+    --bg: #0C1015;
+    --surface: #131921;
+    --surface-2: #1A222D;
+    --surface-3: #222C3A;
+    --input-bg: #0E131A;
+    --border: #232D3B;
+    --border-strong: #334154;
+    --text: #EEF2F6;
+    --text-muted: #94A3B8;
+    --text-subtle: #64748B;
+    --accent: #108486;
+    --accent-hover: #149698;
+    --accent-soft: rgba(16, 132, 134, 0.14);
+    --accent-text: #45C8C4;
+    --on-accent: #FFFFFF;
+    --focus-ring: rgba(69, 200, 196, 0.35);
+    --success: #34B38A;
+    --success-soft: rgba(52, 179, 138, 0.12);
+    --warning: #E5A23C;
+    --warning-soft: rgba(229, 162, 60, 0.12);
+    --danger: #E0636B;
+    --danger-soft: rgba(224, 99, 107, 0.12);
+    --on-danger: #FFFFFF;
+    --info: #4DA3D9;
+    --info-soft: rgba(77, 163, 217, 0.12);
+    --modal-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+    --overlay-bg: rgba(5, 8, 12, 0.74);
+    background-color: var(--bg);
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', 'Noto Sans JP', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: 'Plus Jakarta Sans', 'Noto Sans JP', system-ui, sans-serif;
+    letter-spacing: -0.015em;
+  }
+
+  /* Japanese typography adjustments: looser line-height, no negative letter-spacing */
+  html[lang="ja"] body {
+    line-height: 1.7;
+    letter-spacing: 0;
+  }
+
+  html[lang="ja"] h1,
+  html[lang="ja"] h2,
+  html[lang="ja"] h3,
+  html[lang="ja"] h4,
+  html[lang="ja"] .font-display,
+  html[lang="ja"] .tracking-tight {
+    letter-spacing: 0 !important;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  }
+
+  /* Consistent enterprise focus ring */
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  .dark :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  /* Light-mode disabled form controls use --surface-3 */
+  html:not(.dark) input:disabled,
+  html:not(.dark) select:disabled,
+  html:not(.dark) textarea:disabled {
+    background-color: var(--surface-3);
+  }
+}
+
+/* Smooth 180ms theme switch transition (background-color & color only) */
+html.theme-transitioning,
+html.theme-transitioning *,
+html.theme-transitioning *::before,
+html.theme-transitioning *::after {
+  transition-property: background-color, color !important;
+  transition-duration: 180ms !important;
+  transition-timing-function: ease !important;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Subtle custom scrollbars for enterprise dark/light tables & sidebars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 9999px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,1633 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Core Identity & Validation Primitives
+    // -------------------------------------------------------------------------
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn();
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isBootstrapAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.email == 'ahmadmagfur1218@gmail.com' && request.auth.token.email_verified == true)
+        || request.auth.token.email == 'superuser@sopbrain.app'
+      );
+    }
+
+    function isDefaultDivisionAdmin() {
+      return isSignedIn() && request.auth.token.email == 'admin@sopbrain.app';
+    }
+
+    function userDocExists(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid));
+    }
+
+    function getUserRole() {
+      return userDocExists(request.auth.uid)
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+        : 'Karyawan';
+    }
+
+    function getUserDivisionId() {
+      return userDocExists(request.auth.uid)
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.divisionId
+        : '';
+    }
+
+    function isSuperAdmin() {
+      return isBootstrapAdmin() || (isVerifiedUser() && getUserRole() == 'Super Admin');
+    }
+
+    function isDivisionAdminOf(divisionId) {
+      return isVerifiedUser() && getUserRole() == 'Admin Divisi' && getUserDivisionId() == divisionId;
+    }
+
+    function isAuthor() {
+      return isVerifiedUser() && (getUserRole() == 'Penulis' || getUserRole() == 'Admin Divisi' || isSuperAdmin());
+    }
+
+    function isValidRole(role) {
+      return role in ['Super Admin', 'Admin Divisi', 'Penulis', 'Karyawan'];
+    }
+
+    function isValidSopStatus(status) {
+      return status in ['Draft', 'Review', 'Disetujui', 'Arsip'];
+    }
+
+    function isValidAccessLevel(level) {
+      return level in ['Umum', 'Per Divisi', 'Rahasia'];
+    }
+
+    function isValidFeedback(fb) {
+      return fb in ['none', 'helpful', 'inaccurate', 'outdated'];
+    }
+
+    function isValidMeetingStatus(status) {
+      return status in ['Terjadwal', 'Berlangsung', 'Selesai', 'Dibatalkan'];
+    }
+
+    function isValidAssetCategory(category) {
+      return category in ['Kendaraan', 'Meja', 'Kursi', 'Bangunan', 'Elektronik & IT', 'Mesin & Peralatan', 'Lainnya'];
+    }
+
+    function isValidAssetCondition(condition) {
+      return condition in ['Baik', 'Perlu Perhatian', 'Dalam Perbaikan', 'Rusak / Nonaktif'];
+    }
+
+    function isValidMaintenanceType(mType) {
+      return mType in [
+        'Servis Berkala', 'Ganti Oli', 'Bayar Pajak STNK', 'Uji KIR',
+        'Perpanjangan Asuransi', 'Perawatan Bangunan / AC',
+        'Inspeksi & Kalibrasi', 'Perbaikan', 'Lainnya'
+      ];
+    }
+
+    function isValidMaintenanceStatus(status) {
+      return status in ['Terjadwal', 'Mendekati Jatuh Tempo', 'Terlambat', 'Selesai', 'Dibatalkan'];
+    }
+
+    function isNonEmptyString(val, maxLen) {
+      return val is string && val.size() >= 1 && val.size() <= maxLen;
+    }
+
+    function isBoundedString(val, maxLen) {
+      return val is string && val.size() <= maxLen;
+    }
+
+    function isBoundedStringList(arr, maxLen) {
+      return arr is list && arr.size() <= maxLen && (arr.size() == 0 || arr[0] is string);
+    }
+
+    function isBoundedMapList(arr, maxLen) {
+      return arr is list && arr.size() <= maxLen && (arr.size() == 0 || arr[0] is map);
+    }
+
+    // -------------------------------------------------------------------------
+    // Entity Validation Blueprints
+    // -------------------------------------------------------------------------
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'divisionId', 'divisionName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'photoURL', 'role', 'divisionId', 'divisionName', 'erpUserId', 'erpUserCode', 'erpUserName', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && isNonEmptyString(data.email, 254)
+        && isNonEmptyString(data.displayName, 120)
+        && (!('photoURL' in data) || isBoundedString(data.photoURL, 500))
+        && isValidRole(data.role)
+        && isBoundedString(data.divisionId, 128)
+        && isBoundedString(data.divisionName, 120)
+        && (!('erpUserId' in data) || (data.erpUserId is int && data.erpUserId >= 0 && data.erpUserId <= 999999999))
+        && (!('erpUserCode' in data) || isBoundedString(data.erpUserCode, 40))
+        && (!('erpUserName' in data) || isBoundedString(data.erpUserName, 120))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidDirectoryMember(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'role', 'divisionId', 'divisionName', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'role', 'divisionId', 'divisionName', 'updatedAt'])
+        && isValidId(data.uid)
+        && isNonEmptyString(data.displayName, 120)
+        && isValidRole(data.role)
+        && isBoundedString(data.divisionId, 128)
+        && isBoundedString(data.divisionName, 120)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidDivision(data) {
+      return data.keys().hasAll(['id', 'name', 'code', 'description', 'leadUid', 'leadName', 'suggestedQuestions', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'code', 'description', 'leadUid', 'leadName', 'suggestedQuestions', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isNonEmptyString(data.name, 120)
+        && isNonEmptyString(data.code, 20)
+        && isBoundedString(data.description, 500)
+        && isBoundedString(data.leadUid, 128)
+        && isBoundedString(data.leadName, 120)
+        && isBoundedStringList(data.suggestedQuestions, 10)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidDepartment(data) {
+      return data.keys().hasAll(['id', 'divisionId', 'divisionName', 'name', 'code', 'description', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'divisionId', 'divisionName', 'name', 'code', 'description', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.divisionId)
+        && isNonEmptyString(data.divisionName, 120)
+        && isNonEmptyString(data.name, 120)
+        && isNonEmptyString(data.code, 20)
+        && isBoundedString(data.description, 500)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSop(data) {
+      return data.keys().hasAll([
+          'id', 'docNumber', 'title', 'divisionId', 'divisionName',
+          'departmentId', 'departmentName', 'purpose', 'scope',
+          'ownerUid', 'ownerName', 'relatedRoles', 'sections', 'attachments',
+          'effectiveDate', 'nextReviewDate', 'status', 'accessLevel',
+          'allowedUserUids', 'viewerUids', 'version',
+          'createdByUid', 'createdByName', 'approvedByUid', 'approvedByName',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'docNumber', 'title', 'divisionId', 'divisionName',
+          'departmentId', 'departmentName', 'purpose', 'scope',
+          'ownerUid', 'ownerName', 'relatedRoles', 'sections', 'attachments',
+          'effectiveDate', 'nextReviewDate', 'status', 'accessLevel',
+          'allowedUserUids', 'viewerUids', 'version',
+          'createdByUid', 'createdByName', 'approvedByUid', 'approvedByName',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isNonEmptyString(data.docNumber, 60)
+        && isNonEmptyString(data.title, 240)
+        && isValidId(data.divisionId)
+        && isNonEmptyString(data.divisionName, 120)
+        && isValidId(data.departmentId)
+        && isNonEmptyString(data.departmentName, 120)
+        && isBoundedString(data.purpose, 4000)
+        && isBoundedString(data.scope, 4000)
+        && isBoundedString(data.ownerUid, 128)
+        && isBoundedString(data.ownerName, 120)
+        && isBoundedStringList(data.relatedRoles, 20)
+        && isBoundedMapList(data.sections, 40)
+        && isBoundedMapList(data.attachments, 20)
+        && isBoundedString(data.effectiveDate, 20)
+        && isBoundedString(data.nextReviewDate, 20)
+        && isValidSopStatus(data.status)
+        && isValidAccessLevel(data.accessLevel)
+        && isBoundedStringList(data.allowedUserUids, 100)
+        && isBoundedStringList(data.viewerUids, 200)
+        && data.version is int && data.version >= 1 && data.version <= 9999
+        && isValidId(data.createdByUid)
+        && isNonEmptyString(data.createdByName, 120)
+        && isBoundedString(data.approvedByUid, 128)
+        && isBoundedString(data.approvedByName, 120)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSopVersion(data) {
+      return data.keys().hasAll([
+          'id', 'sopId', 'version', 'docNumber', 'title', 'purpose', 'scope',
+          'relatedRoles', 'sections', 'attachments', 'effectiveDate', 'nextReviewDate',
+          'status', 'accessLevel', 'createdByUid', 'ownerUid', 'viewerUids',
+          'changeNote', 'editedByUid', 'editedByName', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'sopId', 'version', 'docNumber', 'title', 'purpose', 'scope',
+          'relatedRoles', 'sections', 'attachments', 'effectiveDate', 'nextReviewDate',
+          'status', 'accessLevel', 'createdByUid', 'ownerUid', 'viewerUids',
+          'changeNote', 'editedByUid', 'editedByName', 'createdAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.sopId)
+        && data.version is int && data.version >= 1
+        && isNonEmptyString(data.docNumber, 60)
+        && isNonEmptyString(data.title, 240)
+        && isBoundedString(data.purpose, 4000)
+        && isBoundedString(data.scope, 4000)
+        && isBoundedStringList(data.relatedRoles, 20)
+        && isBoundedMapList(data.sections, 40)
+        && isBoundedMapList(data.attachments, 20)
+        && isBoundedString(data.effectiveDate, 20)
+        && isBoundedString(data.nextReviewDate, 20)
+        && isValidSopStatus(data.status)
+        && isValidAccessLevel(data.accessLevel)
+        && isValidId(data.createdByUid)
+        && isBoundedString(data.ownerUid, 128)
+        && isBoundedStringList(data.viewerUids, 200)
+        && isBoundedString(data.changeNote, 500)
+        && isValidId(data.editedByUid)
+        && isNonEmptyString(data.editedByName, 120)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidSopChunk(data) {
+      return data.keys().hasAll([
+          'id', 'sopId', 'docNumber', 'title', 'version', 'divisionId',
+          'divisionName', 'departmentName', 'sectionIndex', 'sectionTitle',
+          'content', 'keywords', 'embedding', 'status', 'accessLevel',
+          'viewerUids', 'ownerUid', 'ownerName', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'sopId', 'docNumber', 'title', 'version', 'divisionId',
+          'divisionName', 'departmentName', 'sectionIndex', 'sectionTitle',
+          'content', 'keywords', 'embedding', 'status', 'accessLevel',
+          'viewerUids', 'ownerUid', 'ownerName', 'createdAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.sopId)
+        && isNonEmptyString(data.docNumber, 60)
+        && isNonEmptyString(data.title, 240)
+        && data.version is int && data.version >= 1
+        && isValidId(data.divisionId)
+        && isNonEmptyString(data.divisionName, 120)
+        && isNonEmptyString(data.departmentName, 120)
+        && data.sectionIndex is int && data.sectionIndex >= 0
+        && isNonEmptyString(data.sectionTitle, 240)
+        && isNonEmptyString(data.content, 12000)
+        && isBoundedString(data.keywords, 12000)
+        && data.embedding is list && data.embedding.size() <= 4096 && (data.embedding.size() == 0 || data.embedding[0] is number)
+        && data.status == 'Disetujui'
+        && isValidAccessLevel(data.accessLevel)
+        && isBoundedStringList(data.viewerUids, 200)
+        && isBoundedString(data.ownerUid, 128)
+        && isBoundedString(data.ownerName, 120)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidChatSession(data) {
+      return data.keys().hasAll(['id', 'userId', 'userName', 'divisionId', 'title', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'userName', 'divisionId', 'title', 'isPinned', 'pinnedAt', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.userId)
+        && isNonEmptyString(data.userName, 120)
+        && isBoundedString(data.divisionId, 128)
+        && isNonEmptyString(data.title, 200)
+        && (!('isPinned' in data) || data.isPinned is bool)
+        && (!('pinnedAt' in data) || (data.pinnedAt is int && data.pinnedAt >= 0))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidChatMessage(data) {
+      return data.keys().hasAll([
+          'id', 'sessionId', 'userId', 'role', 'content', 'citations',
+          'hasConflict', 'answered', 'suggestedContact', 'feedback',
+          'feedbackNote', 'logId', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'sessionId', 'userId', 'role', 'content', 'citations',
+          'hasConflict', 'answered', 'suggestedContact', 'feedback',
+          'feedbackNote', 'logId', 'createdAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.sessionId)
+        && isValidId(data.userId)
+        && data.role in ['user', 'assistant']
+        && isNonEmptyString(data.content, 24000)
+        && isBoundedMapList(data.citations, 12)
+        && data.hasConflict is bool
+        && data.answered is bool
+        && isBoundedString(data.suggestedContact, 300)
+        && isValidFeedback(data.feedback)
+        && isBoundedString(data.feedbackNote, 500)
+        && isBoundedString(data.logId, 128)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidQueryLog(data) {
+      return data.keys().hasAll([
+          'id', 'userId', 'userName', 'divisionId', 'divisionName',
+          'question', 'answered', 'matchedSopIds', 'primarySopId',
+          'primarySopTitle', 'primarySopDocNumber', 'feedback',
+          'feedbackNote', 'resolvedAsSopId', 'adminViewerUids',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'userId', 'userName', 'divisionId', 'divisionName',
+          'question', 'answered', 'matchedSopIds', 'primarySopId',
+          'primarySopTitle', 'primarySopDocNumber', 'feedback',
+          'feedbackNote', 'resolvedAsSopId', 'adminViewerUids',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.userId)
+        && isNonEmptyString(data.userName, 120)
+        && isBoundedString(data.divisionId, 128)
+        && isBoundedString(data.divisionName, 120)
+        && isNonEmptyString(data.question, 1000)
+        && data.answered is bool
+        && isBoundedStringList(data.matchedSopIds, 10)
+        && isBoundedString(data.primarySopId, 128)
+        && isBoundedString(data.primarySopTitle, 240)
+        && isBoundedString(data.primarySopDocNumber, 60)
+        && isValidFeedback(data.feedback)
+        && isBoundedString(data.feedbackNote, 500)
+        && isBoundedString(data.resolvedAsSopId, 128)
+        && isBoundedStringList(data.adminViewerUids, 50)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll([
+          'id', 'actorUid', 'actorName', 'action', 'targetType',
+          'targetId', 'targetLabel', 'divisionId', 'detail',
+          'adminViewerUids', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'actorUid', 'actorName', 'action', 'targetType',
+          'targetId', 'targetLabel', 'divisionId', 'detail',
+          'adminViewerUids', 'createdAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.actorUid)
+        && isNonEmptyString(data.actorName, 120)
+        && isNonEmptyString(data.action, 80)
+        && data.targetType in ['SOP', 'USER', 'DIVISION', 'DEPARTMENT', 'MEETING', 'ASSET', 'MAINTENANCE']
+        && isValidId(data.targetId)
+        && isBoundedString(data.targetLabel, 240)
+        && isBoundedString(data.divisionId, 128)
+        && isBoundedString(data.detail, 500)
+        && isBoundedStringList(data.adminViewerUids, 50)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidMeeting(data) {
+      return data.keys().hasAll([
+          'id', 'title', 'description', 'divisionId', 'divisionName',
+          'date', 'startTime', 'endTime', 'startAtMs', 'reminderMinutes',
+          'location', 'status', 'participantUids', 'participantNames',
+          'externalParticipants', 'organizerUid', 'organizerName', 'viewerUids',
+          'isPublic', 'minutesSummary', 'decisions', 'actionItems',
+          'minutesVersion', 'minutesUpdatedByName', 'linkedSopId',
+          'linkedSopDocNumber', 'linkedSopTitle', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'title', 'description', 'divisionId', 'divisionName',
+          'date', 'startTime', 'endTime', 'startAtMs', 'reminderMinutes',
+          'location', 'status', 'participantUids', 'participantNames',
+          'participantResponses', 'externalParticipants', 'organizerUid',
+          'organizerName', 'viewerUids', 'isPublic', 'minutesSummary',
+          'decisions', 'actionItems', 'minutesVersion', 'minutesUpdatedByName',
+          'linkedSopId', 'linkedSopDocNumber', 'linkedSopTitle', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isNonEmptyString(data.title, 240)
+        && isBoundedString(data.description, 4000)
+        && isBoundedString(data.divisionId, 128)
+        && isBoundedString(data.divisionName, 120)
+        && isNonEmptyString(data.date, 20)
+        && isNonEmptyString(data.startTime, 10)
+        && isNonEmptyString(data.endTime, 10)
+        && data.startAtMs is int && data.startAtMs >= 0
+        && data.reminderMinutes is int && data.reminderMinutes >= 0 && data.reminderMinutes <= 1440
+        && isBoundedString(data.location, 300)
+        && isValidMeetingStatus(data.status)
+        && isBoundedStringList(data.participantUids, 100)
+        && isBoundedStringList(data.participantNames, 100)
+        && (!('participantResponses' in data) || isBoundedMapList(data.participantResponses, 100))
+        && isBoundedString(data.externalParticipants, 500)
+        && isValidId(data.organizerUid)
+        && isNonEmptyString(data.organizerName, 120)
+        && isBoundedStringList(data.viewerUids, 200)
+        && data.isPublic is bool
+        && isBoundedString(data.minutesSummary, 12000)
+        && isBoundedStringList(data.decisions, 40)
+        && isBoundedMapList(data.actionItems, 40)
+        && data.minutesVersion is int && data.minutesVersion >= 0 && data.minutesVersion <= 9999
+        && isBoundedString(data.minutesUpdatedByName, 120)
+        && isBoundedString(data.linkedSopId, 128)
+        && isBoundedString(data.linkedSopDocNumber, 60)
+        && isBoundedString(data.linkedSopTitle, 240)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMeetingMinuteVersion(data) {
+      return data.keys().hasAll([
+          'id', 'meetingId', 'version', 'minutesSummary', 'decisions',
+          'actionItems', 'changeNote', 'editedByUid', 'editedByName',
+          'viewerUids', 'isPublic', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'meetingId', 'version', 'minutesSummary', 'decisions',
+          'actionItems', 'changeNote', 'editedByUid', 'editedByName',
+          'viewerUids', 'isPublic', 'createdAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.meetingId)
+        && data.version is int && data.version >= 1 && data.version <= 9999
+        && isBoundedString(data.minutesSummary, 12000)
+        && isBoundedStringList(data.decisions, 40)
+        && isBoundedMapList(data.actionItems, 40)
+        && isBoundedString(data.changeNote, 500)
+        && isValidId(data.editedByUid)
+        && isNonEmptyString(data.editedByName, 120)
+        && isBoundedStringList(data.viewerUids, 200)
+        && data.isPublic is bool
+        && data.createdAt is timestamp;
+    }
+
+    function isValidCompanyAsset(data) {
+      return data.keys().hasAll([
+          'id', 'assetCode', 'name', 'category', 'subCategory', 'quantity', 'unit',
+          'condition', 'location', 'divisionId', 'divisionName', 'picUid', 'picName',
+          'plateOrSerial', 'brandModel', 'purchaseDate', 'currentOdometerKm', 'notes',
+          'isPublic', 'viewerUids', 'createdByUid', 'createdByName', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'assetCode', 'name', 'category', 'subCategory', 'quantity', 'unit',
+          'condition', 'location', 'divisionId', 'divisionName', 'picUid', 'picName',
+          'plateOrSerial', 'brandModel', 'purchaseDate', 'currentOdometerKm', 'notes',
+          'isPublic', 'viewerUids', 'createdByUid', 'createdByName', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isNonEmptyString(data.assetCode, 40)
+        && isNonEmptyString(data.name, 160)
+        && isValidAssetCategory(data.category)
+        && isBoundedString(data.subCategory, 80)
+        && data.quantity is int && data.quantity >= 1 && data.quantity <= 100000
+        && isNonEmptyString(data.unit, 30)
+        && isValidAssetCondition(data.condition)
+        && isBoundedString(data.location, 160)
+        && isBoundedString(data.divisionId, 128)
+        && isBoundedString(data.divisionName, 120)
+        && isBoundedString(data.picUid, 128)
+        && isBoundedString(data.picName, 120)
+        && isBoundedString(data.plateOrSerial, 80)
+        && isBoundedString(data.brandModel, 120)
+        && isBoundedString(data.purchaseDate, 20)
+        && data.currentOdometerKm is int && data.currentOdometerKm >= 0 && data.currentOdometerKm <= 10000000
+        && isBoundedString(data.notes, 2000)
+        && data.isPublic is bool
+        && isBoundedStringList(data.viewerUids, 200)
+        && isValidId(data.createdByUid)
+        && isNonEmptyString(data.createdByName, 120)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMaintenanceSchedule(data) {
+      return data.keys().hasAll([
+          'id', 'assetId', 'assetCode', 'assetName', 'assetCategory', 'plateOrSerial',
+          'maintenanceType', 'title', 'dueDate', 'dueAtMs', 'intervalMonths', 'intervalKm',
+          'targetOdometerKm', 'reminderDaysBefore', 'status', 'lastCompletedDate',
+          'estimatedCost', 'vendorName', 'picUid', 'picName', 'divisionId', 'divisionName',
+          'notes', 'history', 'isPublic', 'viewerUids', 'createdByUid', 'createdByName',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'assetId', 'assetCode', 'assetName', 'assetCategory', 'plateOrSerial',
+          'maintenanceType', 'title', 'dueDate', 'dueAtMs', 'intervalMonths', 'intervalKm',
+          'targetOdometerKm', 'reminderDaysBefore', 'status', 'lastCompletedDate',
+          'estimatedCost', 'vendorName', 'picUid', 'picName', 'divisionId', 'divisionName',
+          'notes', 'history', 'isPublic', 'viewerUids', 'createdByUid', 'createdByName',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.assetId)
+        && isNonEmptyString(data.assetCode, 40)
+        && isNonEmptyString(data.assetName, 160)
+        && isValidAssetCategory(data.assetCategory)
+        && isBoundedString(data.plateOrSerial, 80)
+        && isValidMaintenanceType(data.maintenanceType)
+        && isNonEmptyString(data.title, 200)
+        && isNonEmptyString(data.dueDate, 20)
+        && data.dueAtMs is int && data.dueAtMs >= 0
+        && data.intervalMonths is int && data.intervalMonths >= 0 && data.intervalMonths <= 120
+        && data.intervalKm is int && data.intervalKm >= 0 && data.intervalKm <= 500000
+        && data.targetOdometerKm is int && data.targetOdometerKm >= 0 && data.targetOdometerKm <= 10000000
+        && data.reminderDaysBefore is int && data.reminderDaysBefore >= 0 && data.reminderDaysBefore <= 180
+        && isValidMaintenanceStatus(data.status)
+        && isBoundedString(data.lastCompletedDate, 20)
+        && data.estimatedCost is int && data.estimatedCost >= 0 && data.estimatedCost <= 10000000000
+        && isBoundedString(data.vendorName, 160)
+        && isBoundedString(data.picUid, 128)
+        && isBoundedString(data.picName, 120)
+        && isBoundedString(data.divisionId, 128)
+        && isBoundedString(data.divisionName, 120)
+        && isBoundedString(data.notes, 2000)
+        && isBoundedMapList(data.history, 50)
+        && data.isPublic is bool
+        && isBoundedStringList(data.viewerUids, 200)
+        && isValidId(data.createdByUid)
+        && isNonEmptyString(data.createdByName, 120)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidChartType(t) {
+      return t in ['bar', 'horizontal_bar', 'line', 'area', 'donut', 'pie', 'stacked_bar'];
+    }
+
+    function isValidChartPalette(p) {
+      return p in ['corporate', 'emerald', 'boardroom', 'contrast'];
+    }
+
+    function isValidChartValueFormat(f) {
+      return f in ['currency', 'number', 'percent'];
+    }
+
+    function isValidChartSortMode(s) {
+      return s in ['original', 'desc', 'asc'];
+    }
+
+    function isBoundedIntList(listVal, maxItems) {
+      return listVal is list
+        && listVal.size() <= maxItems
+        && (listVal.size() == 0 || listVal[0] is int);
+    }
+
+    function isValidPinnedChart(data) {
+      return data.keys().hasAll([
+          'id', 'title', 'subtitle', 'chartType', 'palette', 'valueFormat',
+          'unitLabel', 'categoryLabel', 'labels', 'series', 'activeSeriesIndices',
+          'showDataLabels', 'sortMode', 'speakerNotes', 'sourceQuestion',
+          'sourceLabel', 'displayOrder', 'isShared', 'divisionId', 'divisionName',
+          'ownerUid', 'ownerName', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'title', 'subtitle', 'chartType', 'palette', 'valueFormat',
+          'unitLabel', 'categoryLabel', 'labels', 'series', 'activeSeriesIndices',
+          'showDataLabels', 'sortMode', 'speakerNotes', 'sourceQuestion',
+          'sourceLabel', 'displayOrder', 'isShared', 'divisionId', 'divisionName',
+          'ownerUid', 'ownerName', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isNonEmptyString(data.title, 180)
+        && isBoundedString(data.subtitle, 300)
+        && isValidChartType(data.chartType)
+        && isValidChartPalette(data.palette)
+        && isValidChartValueFormat(data.valueFormat)
+        && isBoundedString(data.unitLabel, 40)
+        && isBoundedString(data.categoryLabel, 80)
+        && data.labels is list && data.labels.size() >= 1 && data.labels.size() <= 50 && data.labels[0] is string
+        && data.series is list && data.series.size() >= 1 && data.series.size() <= 8 && data.series[0] is map
+        && isBoundedIntList(data.activeSeriesIndices, 8)
+        && data.showDataLabels is bool
+        && isValidChartSortMode(data.sortMode)
+        && isBoundedString(data.speakerNotes, 2000)
+        && isBoundedString(data.sourceQuestion, 500)
+        && isBoundedString(data.sourceLabel, 160)
+        && data.displayOrder is int && data.displayOrder >= 0 && data.displayOrder <= 100000
+        && data.isShared is bool
+        && isBoundedString(data.divisionId, 128)
+        && isBoundedString(data.divisionName, 120)
+        && isValidId(data.ownerUid)
+        && isNonEmptyString(data.ownerName, 120)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidNotificationCategory(c) {
+      return c in ['maintenance', 'meeting', 'sop_review', 'general'];
+    }
+
+    function isValidNotificationPriority(p) {
+      return p in ['normal', 'warning', 'urgent'];
+    }
+
+    function isValidNotificationSourceType(s) {
+      return s in ['ASSET_MAINTENANCE', 'MEETING', 'SOP', 'MANUAL'];
+    }
+
+    function isValidChannelDeliveryStatus(s) {
+      return s in ['not_requested', 'sent', 'failed', 'manual_fallback', 'missing_contact'];
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll([
+          'id', 'category', 'priority', 'title', 'message', 'sourceType', 'sourceId',
+          'sourceLabel', 'dueDate', 'recipientUid', 'recipientName', 'recipientEmail',
+          'recipientPhone', 'recipientErpCode', 'divisionId', 'channels', 'inAppRead',
+          'emailStatus', 'whatsappStatus', 'deliveryNote', 'senderUid', 'senderName',
+          'viewerUids', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'category', 'priority', 'title', 'message', 'sourceType', 'sourceId',
+          'sourceLabel', 'dueDate', 'recipientUid', 'recipientName', 'recipientEmail',
+          'recipientPhone', 'recipientErpCode', 'divisionId', 'channels', 'inAppRead',
+          'emailStatus', 'whatsappStatus', 'deliveryNote', 'senderUid', 'senderName',
+          'viewerUids', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isValidNotificationCategory(data.category)
+        && isValidNotificationPriority(data.priority)
+        && isNonEmptyString(data.title, 200)
+        && isNonEmptyString(data.message, 4000)
+        && isValidNotificationSourceType(data.sourceType)
+        && isBoundedString(data.sourceId, 128)
+        && isBoundedString(data.sourceLabel, 200)
+        && isBoundedString(data.dueDate, 30)
+        && isBoundedString(data.recipientUid, 128)
+        && isNonEmptyString(data.recipientName, 120)
+        && isBoundedString(data.recipientEmail, 254)
+        && isBoundedString(data.recipientPhone, 40)
+        && isBoundedString(data.recipientErpCode, 60)
+        && isBoundedString(data.divisionId, 128)
+        && data.channels is list && data.channels.size() >= 1 && data.channels.size() <= 3
+        && data.channels.hasOnly(['in_app', 'email', 'whatsapp'])
+        && data.inAppRead is bool
+        && isValidChannelDeliveryStatus(data.emailStatus)
+        && isValidChannelDeliveryStatus(data.whatsappStatus)
+        && isBoundedString(data.deliveryNote, 500)
+        && isValidId(data.senderUid)
+        && isNonEmptyString(data.senderName, 120)
+        && isBoundedStringList(data.viewerUids, 50)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidEmployeeContact(data) {
+      return data.keys().hasAll([
+          'id', 'erpContactId', 'erpContactCode', 'employeeName', 'linkedUid',
+          'divisionId', 'divisionName', 'jobTitle', 'email', 'whatsappPhone',
+          'notes', 'adminViewerUids', 'updatedByUid', 'updatedByName',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'erpContactId', 'erpContactCode', 'employeeName', 'linkedUid',
+          'divisionId', 'divisionName', 'jobTitle', 'email', 'whatsappPhone',
+          'notes', 'adminViewerUids', 'updatedByUid', 'updatedByName',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.erpContactId is int && data.erpContactId >= 0 && data.erpContactId <= 999999999
+        && isBoundedString(data.erpContactCode, 60)
+        && isNonEmptyString(data.employeeName, 120)
+        && isBoundedString(data.linkedUid, 128)
+        && isBoundedString(data.divisionId, 128)
+        && isBoundedString(data.divisionName, 120)
+        && isBoundedString(data.jobTitle, 120)
+        && isBoundedString(data.email, 254)
+        && isBoundedString(data.whatsappPhone, 40)
+        && isBoundedString(data.notes, 500)
+        && isBoundedStringList(data.adminViewerUids, 50)
+        && isValidId(data.updatedByUid)
+        && isNonEmptyString(data.updatedByName, 120)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isAnyAdmin() {
+      return isSuperAdmin() || (isVerifiedUser() && getUserRole() == 'Admin Divisi');
+    }
+
+    function isValidWarehousePreset(preset) {
+      return preset in ['small', 'medium', 'large', 'custom'];
+    }
+
+    function isValidWarehouseCapacityUnit(unit) {
+      return unit in ['pcs', 'box', 'pallet', 'kg', 'unit'];
+    }
+
+    function isValidWarehouseMapSettings(data) {
+      return data.keys().hasAll([
+          'id', 'scope', 'greenMaxPct', 'yellowMaxPct', 'autoRefreshSeconds',
+          'showOvercapacityBadge', 'syncVisibilityToStockTable',
+          'updatedByUid', 'updatedByName', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'scope', 'greenMaxPct', 'yellowMaxPct', 'autoRefreshSeconds',
+          'showOvercapacityBadge', 'syncVisibilityToStockTable',
+          'updatedByUid', 'updatedByName', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.scope == 'workspace'
+        && data.greenMaxPct is int && data.greenMaxPct >= 1 && data.greenMaxPct <= 98
+        && data.yellowMaxPct is int && data.yellowMaxPct > data.greenMaxPct && data.yellowMaxPct <= 100
+        && data.autoRefreshSeconds is int && data.autoRefreshSeconds >= 0 && data.autoRefreshSeconds <= 3600
+        && data.showOvercapacityBadge is bool
+        && data.syncVisibilityToStockTable is bool
+        && isValidId(data.updatedByUid)
+        && isNonEmptyString(data.updatedByName, 120)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidWarehouseMapLayout(data) {
+      return data.keys().hasAll([
+          'id', 'scope', 'warehouseCode', 'warehouseName', 'displayName',
+          'isVisible', 'isIntransit', 'sortOrder', 'preset', 'areaCount',
+          'racksPerArea', 'aisleColumns', 'defaultRackCapacity', 'capacityUnit',
+          'areaNames', 'facilityZones', 'updatedByUid', 'updatedByName',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'scope', 'warehouseCode', 'warehouseName', 'displayName',
+          'isVisible', 'isIntransit', 'sortOrder', 'preset', 'areaCount',
+          'racksPerArea', 'aisleColumns', 'defaultRackCapacity', 'capacityUnit',
+          'areaNames', 'facilityZones', 'updatedByUid', 'updatedByName',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.scope == 'workspace'
+        && isBoundedString(data.warehouseCode, 64)
+        && isNonEmptyString(data.warehouseName, 160)
+        && isBoundedString(data.displayName, 160)
+        && data.isVisible is bool
+        && data.isIntransit is bool
+        && data.sortOrder is int && data.sortOrder >= 0 && data.sortOrder <= 10000
+        && isValidWarehousePreset(data.preset)
+        && data.areaCount is int && data.areaCount >= 1 && data.areaCount <= 12
+        && data.racksPerArea is int && data.racksPerArea >= 1 && data.racksPerArea <= 40
+        && data.aisleColumns is int && data.aisleColumns >= 1 && data.aisleColumns <= 6
+        && data.defaultRackCapacity is int && data.defaultRackCapacity >= 1 && data.defaultRackCapacity <= 100000000
+        && isValidWarehouseCapacityUnit(data.capacityUnit)
+        && isBoundedStringList(data.areaNames, 12)
+        && isBoundedStringList(data.facilityZones, 8)
+        && isValidId(data.updatedByUid)
+        && isNonEmptyString(data.updatedByName, 120)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // -------------------------------------------------------------------------
+    // Collection Rules
+    // -------------------------------------------------------------------------
+
+    // Health-check document (connection verification only)
+    match /test/connection {
+      allow get: if isSignedIn();
+    }
+
+    // Users (PII-isolated: email only visible to self or Super Admin)
+    match /users/{userId} {
+      allow get: if isVerifiedUser() && isValidId(userId) && (request.auth.uid == userId || isSuperAdmin());
+      allow list: if isBootstrapAdmin() || (isVerifiedUser() && resource.data.uid == request.auth.uid);
+
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidUser(incoming())
+        && incoming().uid == userId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || (
+            request.auth.uid == userId
+            && incoming().email == request.auth.token.email
+            && (
+              (isBootstrapAdmin() && incoming().role == 'Super Admin')
+              || (isDefaultDivisionAdmin() && incoming().role == 'Admin Divisi')
+              || (!isBootstrapAdmin() && !isDefaultDivisionAdmin() && incoming().role == 'Karyawan')
+            )
+          )
+        );
+
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidUser(incoming())
+        && incoming().uid == existing().uid
+        && incoming().email == existing().email
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || (
+            request.auth.uid == userId
+            && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt'])
+          )
+        );
+    }
+
+    // Non-PII Directory
+    match /directory/{userId} {
+      allow get: if isVerifiedUser() && isValidId(userId);
+      allow list: if isVerifiedUser();
+
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidDirectoryMember(incoming())
+        && incoming().uid == userId
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || (
+            request.auth.uid == userId
+            && (
+              (isBootstrapAdmin() && incoming().role == 'Super Admin')
+              || (isDefaultDivisionAdmin() && incoming().role == 'Admin Divisi')
+              || incoming().role == 'Karyawan'
+            )
+          )
+        );
+
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidDirectoryMember(incoming())
+        && incoming().uid == existing().uid
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || (
+            request.auth.uid == userId
+            && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt'])
+          )
+        );
+    }
+
+    // Divisions
+    match /divisions/{divisionId} {
+      allow get: if isVerifiedUser() && isValidId(divisionId);
+      allow list: if isVerifiedUser();
+
+      allow create: if isSuperAdmin()
+        && isValidId(divisionId)
+        && isValidDivision(incoming())
+        && incoming().id == divisionId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isSuperAdmin()
+        && isValidId(divisionId)
+        && isValidDivision(incoming())
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+
+      allow delete: if isSuperAdmin() && isValidId(divisionId);
+    }
+
+    // Departments
+    match /departments/{departmentId} {
+      allow get: if isVerifiedUser() && isValidId(departmentId);
+      allow list: if isVerifiedUser();
+
+      allow create: if isVerifiedUser()
+        && isValidId(departmentId)
+        && isValidDepartment(incoming())
+        && incoming().id == departmentId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/divisions/$(incoming().divisionId))
+        && (isSuperAdmin() || isDivisionAdminOf(incoming().divisionId));
+
+      allow update: if isVerifiedUser()
+        && isValidId(departmentId)
+        && isValidDepartment(incoming())
+        && incoming().id == existing().id
+        && incoming().divisionId == existing().divisionId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (isSuperAdmin() || isDivisionAdminOf(existing().divisionId));
+
+      allow delete: if isVerifiedUser()
+        && isValidId(departmentId)
+        && (isSuperAdmin() || isDivisionAdminOf(existing().divisionId));
+    }
+
+    // SOP Documents
+    match /sops/{sopId} {
+      allow get: if isVerifiedUser() && isValidId(sopId) && (
+        isSuperAdmin()
+        || isDivisionAdminOf(existing().divisionId)
+        || existing().createdByUid == request.auth.uid
+        || existing().ownerUid == request.auth.uid
+        || (
+          existing().status == 'Disetujui' && (
+            existing().accessLevel == 'Umum'
+            || (existing().accessLevel == 'Per Divisi' && existing().divisionId == getUserDivisionId())
+            || (existing().accessLevel == 'Rahasia' && request.auth.uid in existing().allowedUserUids)
+          )
+        )
+      );
+
+      allow list: if isVerifiedUser() && (
+        isBootstrapAdmin()
+        || resource.data.createdByUid == request.auth.uid
+        || resource.data.ownerUid == request.auth.uid
+        || request.auth.uid in resource.data.viewerUids
+        || (resource.data.status == 'Disetujui' && resource.data.accessLevel == 'Umum')
+      );
+
+      allow create: if isVerifiedUser()
+        && isValidId(sopId)
+        && isValidSop(incoming())
+        && incoming().id == sopId
+        && incoming().createdByUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/divisions/$(incoming().divisionId))
+        && exists(/databases/$(database)/documents/departments/$(incoming().departmentId))
+        && (
+          isSuperAdmin()
+          || isDivisionAdminOf(incoming().divisionId)
+          || (
+            isAuthor()
+            && incoming().status in ['Draft', 'Review']
+            && incoming().approvedByUid == ''
+            && incoming().approvedByName == ''
+          )
+        );
+
+      allow update: if isVerifiedUser()
+        && isValidId(sopId)
+        && isValidSop(incoming())
+        && incoming().id == existing().id
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || isDivisionAdminOf(existing().divisionId)
+          || (
+            isAuthor()
+            && (existing().createdByUid == request.auth.uid || existing().ownerUid == request.auth.uid)
+            && existing().status in ['Draft', 'Review']
+            && incoming().status in ['Draft', 'Review']
+            && incoming().approvedByUid == existing().approvedByUid
+            && incoming().approvedByName == existing().approvedByName
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'docNumber', 'title', 'departmentId', 'departmentName', 'purpose', 'scope',
+              'ownerUid', 'ownerName', 'relatedRoles', 'sections', 'attachments',
+              'effectiveDate', 'nextReviewDate', 'status', 'accessLevel',
+              'allowedUserUids', 'viewerUids', 'version', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isVerifiedUser()
+        && isValidId(sopId)
+        && (isSuperAdmin() || isDivisionAdminOf(existing().divisionId));
+
+      // Immutable SOP Version Snapshots
+      match /versions/{versionId} {
+        allow get: if isVerifiedUser() && isValidId(sopId) && isValidId(versionId) && (
+          isSuperAdmin()
+          || isDivisionAdminOf(get(/databases/$(database)/documents/sops/$(sopId)).data.divisionId)
+          || get(/databases/$(database)/documents/sops/$(sopId)).data.createdByUid == request.auth.uid
+          || get(/databases/$(database)/documents/sops/$(sopId)).data.ownerUid == request.auth.uid
+          || (
+            get(/databases/$(database)/documents/sops/$(sopId)).data.status == 'Disetujui' && (
+              get(/databases/$(database)/documents/sops/$(sopId)).data.accessLevel == 'Umum'
+              || (get(/databases/$(database)/documents/sops/$(sopId)).data.accessLevel == 'Per Divisi' && get(/databases/$(database)/documents/sops/$(sopId)).data.divisionId == getUserDivisionId())
+              || (get(/databases/$(database)/documents/sops/$(sopId)).data.accessLevel == 'Rahasia' && request.auth.uid in get(/databases/$(database)/documents/sops/$(sopId)).data.allowedUserUids)
+            )
+          )
+        );
+
+        allow list: if isVerifiedUser() && resource.data.sopId == sopId && (
+          isBootstrapAdmin()
+          || resource.data.createdByUid == request.auth.uid
+          || resource.data.ownerUid == request.auth.uid
+          || request.auth.uid in resource.data.viewerUids
+          || (resource.data.status == 'Disetujui' && resource.data.accessLevel == 'Umum')
+        );
+
+        allow create: if isVerifiedUser()
+          && isValidId(sopId)
+          && isValidId(versionId)
+          && isValidSopVersion(incoming())
+          && incoming().id == versionId
+          && incoming().sopId == sopId
+          && incoming().editedByUid == request.auth.uid
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/sops/$(sopId))
+          && (
+            isSuperAdmin()
+            || isDivisionAdminOf(get(/databases/$(database)/documents/sops/$(sopId)).data.divisionId)
+            || (
+              isAuthor()
+              && get(/databases/$(database)/documents/sops/$(sopId)).data.createdByUid == request.auth.uid
+            )
+          );
+
+        allow update, delete: if false;
+      }
+    }
+
+    // Approved SOP Logical Chunks + Vector Embeddings
+    match /sopChunks/{chunkId} {
+      allow get: if isVerifiedUser() && isValidId(chunkId) && (
+        isSuperAdmin()
+        || isDivisionAdminOf(existing().divisionId)
+        || existing().accessLevel == 'Umum'
+        || (existing().accessLevel == 'Per Divisi' && existing().divisionId == getUserDivisionId())
+        || (existing().accessLevel == 'Rahasia' && request.auth.uid in existing().viewerUids)
+      );
+
+      allow list: if isVerifiedUser() && (
+        isBootstrapAdmin()
+        || resource.data.accessLevel == 'Umum'
+        || request.auth.uid in resource.data.viewerUids
+      );
+
+      allow create, update: if isVerifiedUser()
+        && isValidId(chunkId)
+        && isValidSopChunk(incoming())
+        && incoming().id == chunkId
+        && incoming().createdAt == request.time
+        && exists(/databases/$(database)/documents/sops/$(incoming().sopId))
+        && (isSuperAdmin() || isDivisionAdminOf(incoming().divisionId));
+
+      allow delete: if isVerifiedUser()
+        && isValidId(chunkId)
+        && (isSuperAdmin() || isDivisionAdminOf(existing().divisionId));
+    }
+
+    // Chat Sessions & Messages
+    match /chatSessions/{sessionId} {
+      allow get: if isVerifiedUser() && isValidId(sessionId) && existing().userId == request.auth.uid;
+      allow list: if isVerifiedUser() && resource.data.userId == request.auth.uid;
+
+      allow create: if isVerifiedUser()
+        && isValidId(sessionId)
+        && isValidChatSession(incoming())
+        && incoming().id == sessionId
+        && incoming().userId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isValidId(sessionId)
+        && isValidChatSession(incoming())
+        && existing().userId == request.auth.uid
+        && incoming().id == existing().id
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'updatedAt'])
+          || incoming().diff(existing()).affectedKeys().hasOnly(['isPinned', 'pinnedAt', 'updatedAt'])
+        );
+
+      allow delete: if isVerifiedUser() && isValidId(sessionId) && existing().userId == request.auth.uid;
+
+      match /messages/{messageId} {
+        allow get: if isVerifiedUser()
+          && isValidId(sessionId)
+          && isValidId(messageId)
+          && get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.userId == request.auth.uid;
+
+        allow list: if isVerifiedUser() && resource.data.userId == request.auth.uid;
+
+        allow create: if isVerifiedUser()
+          && isValidId(sessionId)
+          && isValidId(messageId)
+          && isValidChatMessage(incoming())
+          && incoming().id == messageId
+          && incoming().sessionId == sessionId
+          && incoming().userId == request.auth.uid
+          && incoming().createdAt == request.time
+          && get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.userId == request.auth.uid;
+
+        allow update: if isVerifiedUser()
+          && isValidId(sessionId)
+          && isValidId(messageId)
+          && isValidChatMessage(incoming())
+          && existing().userId == request.auth.uid
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().diff(existing()).affectedKeys().hasOnly(['feedback', 'feedbackNote']);
+
+        allow delete: if false;
+      }
+    }
+
+    // Query & Feedback Analytics Logs
+    match /queryLogs/{logId} {
+      allow get: if isVerifiedUser() && isValidId(logId) && (
+        existing().userId == request.auth.uid
+        || isSuperAdmin()
+        || isDivisionAdminOf(existing().divisionId)
+      );
+
+      allow list: if isVerifiedUser() && (
+        isBootstrapAdmin()
+        || resource.data.userId == request.auth.uid
+        || request.auth.uid in resource.data.adminViewerUids
+      );
+
+      allow create: if isVerifiedUser()
+        && isValidId(logId)
+        && isValidQueryLog(incoming())
+        && incoming().id == logId
+        && incoming().userId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isValidId(logId)
+        && isValidQueryLog(incoming())
+        && incoming().id == existing().id
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (
+            existing().userId == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['feedback', 'feedbackNote', 'updatedAt'])
+          )
+          || (
+            (isSuperAdmin() || isDivisionAdminOf(existing().divisionId))
+            && incoming().diff(existing()).affectedKeys().hasOnly(['resolvedAsSopId', 'updatedAt'])
+          )
+        );
+    }
+
+    // Immutable Security & Governance Audit Logs
+    match /auditLogs/{auditId} {
+      allow get: if isVerifiedUser() && isValidId(auditId) && (
+        isSuperAdmin() || isDivisionAdminOf(existing().divisionId)
+      );
+
+      allow list: if isVerifiedUser() && (
+        isBootstrapAdmin() || request.auth.uid in resource.data.adminViewerUids
+      );
+
+      allow create: if isVerifiedUser()
+        && isValidId(auditId)
+        && isValidAuditLog(incoming())
+        && incoming().id == auditId
+        && incoming().actorUid == request.auth.uid
+        && incoming().createdAt == request.time;
+
+      allow update, delete: if false;
+    }
+
+    // Company Meetings, Reminders & Structured Minutes (Notulen)
+    match /meetings/{meetingId} {
+      allow get: if isVerifiedUser() && isValidId(meetingId) && (
+        isSuperAdmin()
+        || existing().isPublic == true
+        || existing().organizerUid == request.auth.uid
+        || request.auth.uid in existing().participantUids
+        || request.auth.uid in existing().viewerUids
+        || (existing().divisionId != '' && isDivisionAdminOf(existing().divisionId))
+      );
+
+      allow list: if isVerifiedUser() && (
+        isBootstrapAdmin()
+        || resource.data.isPublic == true
+        || resource.data.organizerUid == request.auth.uid
+        || request.auth.uid in resource.data.participantUids
+        || request.auth.uid in resource.data.viewerUids
+      );
+
+      allow create: if isVerifiedUser()
+        && isValidId(meetingId)
+        && isValidMeeting(incoming())
+        && incoming().id == meetingId
+        && incoming().organizerUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isValidId(meetingId)
+        && isValidMeeting(incoming())
+        && incoming().id == existing().id
+        && incoming().organizerUid == existing().organizerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || (existing().divisionId != '' && isDivisionAdminOf(existing().divisionId))
+          || existing().organizerUid == request.auth.uid
+          || (
+            request.auth.uid in existing().participantUids
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'participantResponses', 'minutesSummary', 'decisions',
+              'actionItems', 'minutesVersion', 'minutesUpdatedByName',
+              'linkedSopId', 'linkedSopDocNumber', 'linkedSopTitle',
+              'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isVerifiedUser()
+        && isValidId(meetingId)
+        && (
+          isSuperAdmin()
+          || existing().organizerUid == request.auth.uid
+          || (existing().divisionId != '' && isDivisionAdminOf(existing().divisionId))
+        );
+
+      // Immutable Meeting Minutes Revision History
+      match /minuteVersions/{versionId} {
+        allow get: if isVerifiedUser() && isValidId(meetingId) && isValidId(versionId) && (
+          isSuperAdmin()
+          || get(/databases/$(database)/documents/meetings/$(meetingId)).data.isPublic == true
+          || get(/databases/$(database)/documents/meetings/$(meetingId)).data.organizerUid == request.auth.uid
+          || request.auth.uid in get(/databases/$(database)/documents/meetings/$(meetingId)).data.participantUids
+          || request.auth.uid in get(/databases/$(database)/documents/meetings/$(meetingId)).data.viewerUids
+        );
+
+        allow list: if isVerifiedUser() && resource.data.meetingId == meetingId && (
+          isBootstrapAdmin()
+          || resource.data.isPublic == true
+          || request.auth.uid in resource.data.viewerUids
+        );
+
+        allow create: if isVerifiedUser()
+          && isValidId(meetingId)
+          && isValidId(versionId)
+          && isValidMeetingMinuteVersion(incoming())
+          && incoming().id == versionId
+          && incoming().meetingId == meetingId
+          && incoming().editedByUid == request.auth.uid
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/meetings/$(meetingId))
+          && (
+            isSuperAdmin()
+            || get(/databases/$(database)/documents/meetings/$(meetingId)).data.organizerUid == request.auth.uid
+            || request.auth.uid in get(/databases/$(database)/documents/meetings/$(meetingId)).data.participantUids
+            || (
+              get(/databases/$(database)/documents/meetings/$(meetingId)).data.divisionId != ''
+              && isDivisionAdminOf(get(/databases/$(database)/documents/meetings/$(meetingId)).data.divisionId)
+            )
+          );
+
+        allow update, delete: if false;
+      }
+    }
+
+    // Company Assets Inventory (Kendaraan, Meja, Kursi, Bangunan, IT, Peralatan)
+    match /assets/{assetId} {
+      allow get: if isVerifiedUser() && isValidId(assetId) && (
+        isSuperAdmin()
+        || existing().isPublic == true
+        || existing().createdByUid == request.auth.uid
+        || existing().picUid == request.auth.uid
+        || request.auth.uid in existing().viewerUids
+        || (existing().divisionId != '' && isDivisionAdminOf(existing().divisionId))
+      );
+
+      allow list: if isVerifiedUser() && (
+        isBootstrapAdmin()
+        || resource.data.isPublic == true
+        || resource.data.createdByUid == request.auth.uid
+        || resource.data.picUid == request.auth.uid
+        || request.auth.uid in resource.data.viewerUids
+      );
+
+      allow create: if isVerifiedUser()
+        && isValidId(assetId)
+        && isValidCompanyAsset(incoming())
+        && incoming().id == assetId
+        && incoming().createdByUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || isAuthor()
+          || (incoming().divisionId != '' && isDivisionAdminOf(incoming().divisionId))
+        );
+
+      allow update: if isVerifiedUser()
+        && isValidId(assetId)
+        && isValidCompanyAsset(incoming())
+        && incoming().id == existing().id
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || (existing().divisionId != '' && isDivisionAdminOf(existing().divisionId))
+          || existing().createdByUid == request.auth.uid
+          || (
+            existing().picUid == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'condition', 'location', 'currentOdometerKm', 'notes', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isVerifiedUser()
+        && isValidId(assetId)
+        && (
+          isSuperAdmin()
+          || (existing().divisionId != '' && isDivisionAdminOf(existing().divisionId))
+          || existing().createdByUid == request.auth.uid
+        );
+    }
+
+    // Scheduled Asset Maintenance (Servis Berkala, Ganti Oli, Pajak STNK, Uji KIR, dll.)
+    match /maintenanceSchedules/{scheduleId} {
+      allow get: if isVerifiedUser() && isValidId(scheduleId) && (
+        isSuperAdmin()
+        || existing().isPublic == true
+        || existing().createdByUid == request.auth.uid
+        || existing().picUid == request.auth.uid
+        || request.auth.uid in existing().viewerUids
+        || (existing().divisionId != '' && isDivisionAdminOf(existing().divisionId))
+      );
+
+      allow list: if isVerifiedUser() && (
+        isBootstrapAdmin()
+        || resource.data.isPublic == true
+        || resource.data.createdByUid == request.auth.uid
+        || resource.data.picUid == request.auth.uid
+        || request.auth.uid in resource.data.viewerUids
+      );
+
+      allow create: if isVerifiedUser()
+        && isValidId(scheduleId)
+        && isValidMaintenanceSchedule(incoming())
+        && incoming().id == scheduleId
+        && incoming().createdByUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          incoming().assetId.matches('^erp_m7_[0-9]+$')
+          || exists(/databases/$(database)/documents/assets/$(incoming().assetId))
+        )
+        && (
+          isSuperAdmin()
+          || isAuthor()
+          || (incoming().divisionId != '' && isDivisionAdminOf(incoming().divisionId))
+        );
+
+      allow update: if isVerifiedUser()
+        && isValidId(scheduleId)
+        && isValidMaintenanceSchedule(incoming())
+        && incoming().id == existing().id
+        && incoming().assetId == existing().assetId
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || (existing().divisionId != '' && isDivisionAdminOf(existing().divisionId))
+          || existing().createdByUid == request.auth.uid
+          || (
+            existing().picUid == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'dueDate', 'dueAtMs', 'targetOdometerKm',
+              'lastCompletedDate', 'estimatedCost', 'vendorName',
+              'notes', 'history', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isVerifiedUser()
+        && isValidId(scheduleId)
+        && (
+          isSuperAdmin()
+          || (existing().divisionId != '' && isDivisionAdminOf(existing().divisionId))
+          || existing().createdByUid == request.auth.uid
+        );
+    }
+
+    // Pinned Presentation Charts from Tanya AI (Personal & Shared Executive Dashboard)
+    match /pinnedCharts/{chartId} {
+      allow get: if isVerifiedUser() && isValidId(chartId) && (
+        isSuperAdmin()
+        || existing().ownerUid == request.auth.uid
+        || existing().isShared == true
+      );
+
+      allow list: if isVerifiedUser() && (
+        isBootstrapAdmin()
+        || resource.data.ownerUid == request.auth.uid
+        || resource.data.isShared == true
+      );
+
+      allow create: if isVerifiedUser()
+        && isValidId(chartId)
+        && isValidPinnedChart(incoming())
+        && incoming().id == chartId
+        && incoming().ownerUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isValidId(chartId)
+        && isValidPinnedChart(incoming())
+        && incoming().id == existing().id
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || (
+            existing().ownerUid == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'subtitle', 'chartType', 'palette', 'activeSeriesIndices',
+              'showDataLabels', 'sortMode', 'speakerNotes', 'displayOrder',
+              'isShared', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isVerifiedUser()
+        && isValidId(chartId)
+        && (
+          isSuperAdmin()
+          || existing().ownerUid == request.auth.uid
+        );
+    }
+
+    // Special In-App Notifications & Multi-Channel Delivery Logs (Email / WhatsApp)
+    match /notifications/{notifId} {
+      allow get: if isVerifiedUser() && isValidId(notifId) && (
+        isSuperAdmin()
+        || existing().recipientUid == request.auth.uid
+        || existing().senderUid == request.auth.uid
+        || request.auth.uid in existing().viewerUids
+        || (existing().divisionId != '' && isDivisionAdminOf(existing().divisionId))
+      );
+
+      allow list: if isVerifiedUser() && (
+        isBootstrapAdmin()
+        || resource.data.recipientUid == request.auth.uid
+        || resource.data.senderUid == request.auth.uid
+        || request.auth.uid in resource.data.viewerUids
+      );
+
+      allow create: if isVerifiedUser()
+        && isValidId(notifId)
+        && isValidNotification(incoming())
+        && incoming().id == notifId
+        && incoming().senderUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isValidId(notifId)
+        && isValidNotification(incoming())
+        && incoming().id == existing().id
+        && incoming().senderUid == existing().senderUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || (
+            (existing().recipientUid == request.auth.uid || request.auth.uid in existing().viewerUids)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['inAppRead', 'updatedAt'])
+          )
+          || (
+            existing().senderUid == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'emailStatus', 'whatsappStatus', 'deliveryNote', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isVerifiedUser()
+        && isValidId(notifId)
+        && (
+          isSuperAdmin()
+          || existing().senderUid == request.auth.uid
+        );
+    }
+
+    // PII-Isolated Supplementary Employee Contacts (reconciled with ERP m1_contact Employee master)
+    match /employeeContacts/{contactId} {
+      allow get: if isVerifiedUser() && isValidId(contactId) && (
+        isSuperAdmin()
+        || existing().linkedUid == request.auth.uid
+        || (existing().divisionId != '' && isDivisionAdminOf(existing().divisionId))
+      );
+
+      allow list: if isVerifiedUser() && (
+        isBootstrapAdmin()
+        || resource.data.linkedUid == request.auth.uid
+        || request.auth.uid in resource.data.adminViewerUids
+      );
+
+      allow create: if isVerifiedUser()
+        && isValidId(contactId)
+        && isValidEmployeeContact(incoming())
+        && incoming().id == contactId
+        && incoming().updatedByUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || (incoming().divisionId != '' && isDivisionAdminOf(incoming().divisionId))
+          || incoming().linkedUid == request.auth.uid
+        );
+
+      allow update: if isVerifiedUser()
+        && isValidId(contactId)
+        && isValidEmployeeContact(incoming())
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedByUid == request.auth.uid
+        && incoming().updatedAt == request.time
+        && (
+          isSuperAdmin()
+          || (existing().divisionId != '' && isDivisionAdminOf(existing().divisionId))
+          || (
+            existing().linkedUid == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'email', 'whatsappPhone', 'notes', 'updatedByUid', 'updatedByName', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isVerifiedUser()
+        && isValidId(contactId)
+        && (
+          isSuperAdmin()
+          || (existing().divisionId != '' && isDivisionAdminOf(existing().divisionId))
+        );
+    }
+
+    // Warehouse Map Global Threshold & Sync Settings (Non-PII workspace configuration)
+    match /warehouseMapSettings/{settingId} {
+      allow get: if isVerifiedUser() && isValidId(settingId) && existing().scope == 'workspace';
+      allow list: if isVerifiedUser() && resource.data.scope == 'workspace';
+
+      allow create: if isVerifiedUser()
+        && isValidId(settingId)
+        && isValidWarehouseMapSettings(incoming())
+        && incoming().id == settingId
+        && incoming().updatedByUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && isAnyAdmin();
+
+      allow update: if isVerifiedUser()
+        && isValidId(settingId)
+        && isValidWarehouseMapSettings(incoming())
+        && incoming().id == existing().id
+        && incoming().scope == existing().scope
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedByUid == request.auth.uid
+        && incoming().updatedAt == request.time
+        && isAnyAdmin();
+
+      allow delete: if isVerifiedUser()
+        && isValidId(settingId)
+        && isSuperAdmin();
+    }
+
+    // Per-Warehouse Visibility & Floorplan Layout Configurations (bound to ERP m1_warehouse)
+    match /warehouseMapLayouts/{layoutId} {
+      allow get: if isVerifiedUser() && isValidId(layoutId) && existing().scope == 'workspace';
+      allow list: if isVerifiedUser() && resource.data.scope == 'workspace';
+
+      allow create: if isVerifiedUser()
+        && isValidId(layoutId)
+        && isValidWarehouseMapLayout(incoming())
+        && incoming().id == layoutId
+        && incoming().updatedByUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && isAnyAdmin();
+
+      allow update: if isVerifiedUser()
+        && isValidId(layoutId)
+        && isValidWarehouseMapLayout(incoming())
+        && incoming().id == existing().id
+        && incoming().scope == existing().scope
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedByUid == request.auth.uid
+        && incoming().updatedAt == request.time
+        && isAnyAdmin();
+
+      allow delete: if isVerifiedUser()
+        && isValidId(layoutId)
+        && isSuperAdmin();
+    }
+  }
+}

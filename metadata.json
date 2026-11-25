@@ -1,0 +1,6 @@
+{
+  "name": "SOP Brain",
+  "description": "Pusat SOP perusahaan berbasis AI RAG untuk tanya-jawab prosedur kerja secara akurat, sadar hak akses, dan terstruktur.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

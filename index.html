@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="id" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NARA AI — Semua Informasi, Satu Akses.</title>
+    <meta name="description" content="NARA AI — Portal internal perusahaan untuk informasi ERP, SOP & dokumen, meeting & agenda, pengingat, dan pusat bantuan dalam satu akses." />
+    <meta property="og:title" content="NARA AI — Semua Informasi, Satu Akses." />
+    <meta property="og:description" content="NARA AI — Portal internal perusahaan untuk informasi ERP, SOP & dokumen, meeting & agenda, pengingat, dan pusat bantuan dalam satu akses." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+JP:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script>
+      (function () {
+        try {
+          var storedTheme = localStorage.getItem('sop-brain-theme');
+          var useDark;
+          if (storedTheme === 'dark' || storedTheme === 'light') {
+            useDark = storedTheme === 'dark';
+          } else {
+            useDark = !(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
+          }
+          if (useDark) {
+            document.documentElement.classList.add('dark');
+            document.documentElement.style.colorScheme = 'dark';
+            document.documentElement.style.backgroundColor = '#131316';
+          } else {
+            document.documentElement.classList.remove('dark');
+            document.documentElement.style.colorScheme = 'light';
+            document.documentElement.style.backgroundColor = '#E3E5E8';
+          }
+
+          var storedLang = localStorage.getItem('sop-brain-locale');
+          var lang = storedLang;
+          if (lang !== 'id' && lang !== 'en' && lang !== 'ja') {
+            var navLang = (navigator.language || '').toLowerCase();
+            if (navLang.indexOf('ja') === 0) lang = 'ja';
+            else if (navLang.indexOf('en') === 0) lang = 'en';
+            else lang = 'id';
+          }
+          document.documentElement.lang = lang;
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body class="bg-[var(--bg)] text-[var(--text)] antialiased selection:bg-[var(--accent-soft)] selection:text-[var(--text)]">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
